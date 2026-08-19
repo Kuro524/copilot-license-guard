@@ -1,0 +1,112 @@
+{
+  "name": "copilot-license-guard",
+  "displayName": "Copilot License Guard",
+  "description": "GitHub Copilot が意図した Business / Enterprise ライセンスで動作しているか監視し、Free 等に落ちていたら強力に警告します。(判定に GitHub の非公式 API を使用。GitHub 非公認)",
+  "version": "1.1.0",
+  "publisher": "Kuro524",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kuro524/copilot-license-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kuro524/copilot-license-guard/issues"
+  },
+  "homepage": "https://github.com/Kuro524/copilot-license-guard#readme",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "copilot",
+    "license",
+    "compliance",
+    "business",
+    "governance"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "copilotLicenseGuard.check",
+        "title": "Copilot License Guard: 今すぐライセンスを確認",
+        "category": "Copilot License Guard"
+      },
+      {
+        "command": "copilotLicenseGuard.showLog",
+        "title": "Copilot License Guard: ログを表示",
+        "category": "Copilot License Guard"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot License Guard",
+      "properties": {
+        "copilotLicenseGuard.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "ライセンス監視を有効にします。"
+        },
+        "copilotLicenseGuard.allowedPlans": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "business",
+              "enterprise",
+              "individual",
+              "individual_pro",
+              "individual_max",
+              "free"
+            ]
+          },
+          "default": [
+            "business",
+            "enterprise"
+          ],
+          "description": "許可する Copilot プラン。これ以外を検出すると警告します。"
+        },
+        "copilotLicenseGuard.requireOrganization": {
+          "type": "string",
+          "default": "",
+          "description": "Copilot シートの提供元として必須の GitHub Organization login。空なら未チェック。例: my-org"
+        },
+        "copilotLicenseGuard.checkIntervalMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "再チェック間隔(分)。Copilot トークンは約30分で更新されるため 30 前後を推奨。"
+        },
+        "copilotLicenseGuard.modalWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "違反検出時にモーダルダイアログで警告します。無効にすると通知のみになります。"
+        },
+        "copilotLicenseGuard.warnOnOrganizationless": {
+          "type": "boolean",
+          "default": true,
+          "description": "組織 (organization_login_list) が空の場合も警告します。"
+        },
+        "copilotLicenseGuard.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "ステータスバーに現在の Copilot プランを表示します。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.0"
+  }
+}
