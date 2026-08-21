@@ -1,8 +1,8 @@
 {
   "name": "copilot-license-guard",
   "displayName": "Copilot License Guard",
-  "description": "GitHub Copilot が意図した Business / Enterprise ライセンスで動作しているか監視し、Free 等に落ちていたら強力に警告します。(判定に GitHub の非公式 API を使用。GitHub 非公認)",
-  "version": "1.1.0",
+  "description": "GitHub Copilot が意図した Business / Enterprise ライセンスで動作しているか監視し、Free 等に落ちていたら強力に警告します。(判定は GitHub 公開 API を使用。GitHub 非公認)",
+  "version": "1.2.0",
   "publisher": "Kuro524",
   "license": "MIT",
   "repository": {
@@ -95,6 +95,11 @@
           "type": "boolean",
           "default": true,
           "description": "ステータスバーに現在の Copilot プランを表示します。"
+        },
+        "copilotLicenseGuard.useInternalApi": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "プラン名・SKU・シート提供元といった**詳細情報**の取得に、GitHub 公式にサポートされていないエンドポイント `/copilot_internal/user` を併用します。\n\n`false` にしても、Business/Enterprise か個人プランかという**主判定は公開 GraphQL API で行われるため機能します**（違反時の説明が簡素になり、`warnOnOrganizationless` は評価されなくなります）。非公開 API の利用が組織ポリシー上問題になる場合は `false` にしてください。"
         }
       }
     }

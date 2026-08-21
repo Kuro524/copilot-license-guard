@@ -7,20 +7,36 @@ GitHub Copilot が **意図した Copilot Business / Enterprise ライセンス*
 
 > ## ⚠️ 重要なお知らせ（必ずお読みください）
 >
-> ### 本拡張は GitHub の**非公開（非公式）API に依存**しています
+> ### プラン種別の判定は GitHub の**公開 API** で行います
 >
-> 本拡張はプラン判定に、GitHub の内部エンドポイント
-> **`GET https://api.github.com/copilot_internal/user`** を使用しています。
+> 本拡張は Business/Enterprise か個人プランかの判定に、GitHub が公開している
+> GraphQL API のフィールド **`viewer.copilotEndpoints.api`** を使用します。
+> これは GitHub が公開しているスキーマ
+> ([schema.docs.graphql](https://docs.github.com/public/fpt/schema.docs.graphql)) に
+> `@docsCategory(name: "copilot")` 付きで掲載された正式なフィールドで、
+> **管理者権限は不要**です。
+>
+> ### 詳細情報の取得には非公式 API を併用します（任意・OFF 可能）
+>
+> プラン名（`free` / `individual_pro` / `business` 等）・SKU・シート提供元組織といった
+> **詳細情報**は、公開 API では取得できません。これらは GitHub の内部エンドポイント
+> `GET https://api.github.com/copilot_internal/user` から取得しています。
 >
 > - このエンドポイントは **GitHub から公式にドキュメント化・サポートされていません**。
-> - **予告なく仕様変更・廃止される可能性があります。** その場合、本拡張は
->   プランを判定できなくなり、ステータスバーは「不明」になります
->   （**判定不能を「問題なし」とは表示しません**が、監視は事実上停止します）。
-> - GitHub が提供する**公式 API には、自分自身の Copilot プランを取得する手段が存在しません**
->   （2026-08 時点）。組織管理者向けの `GET /orgs/{org}/copilot/billing/seats` 等は
->   オーナー権限が必要で、個々の開発者が自分の VS Code 上の状態を確認する用途には使えません。
+>   予告なく仕様変更・廃止される可能性があります。
+> - **廃止されても主判定は公開 API で継続します。** 違反時の説明が簡素になるだけです。
+> - 非公開 API の利用が組織ポリシー上問題になる場合は、設定
+>   **`copilotLicenseGuard.useInternalApi` を `false`** にしてください。
 > - 本拡張は **GitHub, Inc. および Microsoft とは無関係**であり、これらによる承認・提供・
 >   サポートを受けたものではありません。
+>
+> ### 公開 API のみでは判別できないこと
+>
+> - **Free / Pro / Pro+ / Max の区別**（いずれも `api.individual.githubcopilot.com` になります）
+> - **Business と Enterprise の区別**（いずれも `api.business.githubcopilot.com` になります）
+> - **どの組織が Copilot シートを提供しているか**
+>
+> 本拡張の主目的である「**法人シートで動いているか否か**」の判定には影響しません。
 >
 > ### 免責
 >
@@ -32,6 +48,8 @@ GitHub Copilot が **意図した Copilot Business / Enterprise ライセンス*
 >
 > 業務環境へ広く展開する前に、非公開 API の利用について自組織のポリシー・
 > GitHub との契約条件に照らして問題がないかご確認ください。
+> 懸念がある場合は `copilotLicenseGuard.useInternalApi` を `false` にすれば、
+> **公開 API のみで動作**します。
 
 ---
 
@@ -82,26 +100,74 @@ GitHub プラットフォーム側で技術的にブロックする手段はあ�
 
 ## 判定ロジック
 
-VS Code が保持する GitHub セッションのトークンで、GitHub の内部 API を照会します。
+### 1. 主判定 — 公開 GraphQL API（常に実行）
+
+VS Code が保持する GitHub セッションのトークンで、公開 GraphQL API を照会します。
+
+```graphql
+{ viewer { login copilotEndpoints { api } } }
+```
+
+返される `api` のホスト名からプラン種別を判定します（実測値）。
+
+| `copilotEndpoints.api` | 判定 |
+|---|---|
+| `https://api.business.githubcopilot.com` | **法人**（Business / Enterprise） |
+| `https://api.enterprise.githubcopilot.com` | **法人** |
+| `https://api.individual.githubcopilot.com` | **個人**（Free / Pro / Pro+ / Max）→ 既定では違反 |
+| `https://api.githubcopilot.com`（旧形式） | **個人** → 既定では違反 |
+| 上記以外・取得失敗 | **不明** → 許可外に倒す（fail-safe） |
+
+`*.githubcopilot.com` で終わらないホストは、サフィックス偽装を避けるため必ず「不明」になります。
+
+### 2. 詳細判定 — 内部 API（`useInternalApi: true` のときのみ）
 
 ```
 GET https://api.github.com/copilot_internal/user
-Authorization: token <VS Code の GitHub セッショントークン>
 ```
 
 | フィールド | 判定 |
 |---|---|
-| `copilot_plan` | `business` / `enterprise` 以外は違反（既定） |
+| `copilot_plan` | `allowedPlans` に無ければ違反 |
 | `access_type_sku` | `free_limited_copilot` = **Free 確定** |
 | `limited_user_quotas` | non-null = Free のクォータ制限下 |
 | `can_signup_for_limited` | `true` = 組織シート未割当 |
 | `organization_login_list` | 空 = 組織経由で使っていない |
-| `endpoints.api` | 法人は `api.business.githubcopilot.com`。`api.githubcopilot.com` は個人/Free |
 
 未知の SKU は `unknown` として**許可外（＝警告）に倒します**（fail-safe）。
+このステップが失敗しても、1. の判定結果はそのまま有効です。
 
-> ⚠️ `/copilot_internal/user` は GitHub の**内部 API で公式サポート対象外**です。
-> 仕様変更で動作しなくなる可能性があります。取得に失敗した場合はステータスバーが「不明」になります。
+### 3. Organization の確認（`requireOrganization` 設定時のみ）
+
+内部 API から `organization_login_list`（＝**シート提供元**）が取れていればそれで照合します。
+取れない場合は公開 REST API で**所属だけ**を確認します。
+
+```
+GET https://api.github.com/user/memberships/orgs/{org}
+```
+
+| 応答 | 扱い |
+|---|---|
+| `200` + `state: active` | 所属を確認（ただし「その組織がシートを提供しているか」までは不明） |
+| `200` + `state: pending` | 参加未完了 → 違反 |
+| `404` | メンバーではない → 違反 |
+| `403` など | **確認不能**（IP 許可リスト / SAML SSO 未認可）→ **違反にしません** |
+
+> **Organization owner 権限は不要です。** これは「**自分自身の**メンバーシップ」を返す
+> 自己参照 API で、必要なのは OAuth スコープ（一般メンバーが自分で付与できるもの）だけです。
+> GitHub が返す受理スコープは実測で
+> `admin:org, read:org, repo, user, write:org` であり、`admin:org` は要求されません。
+>
+> 対照的に、組織管理者向けの `GET /orgs/{org}/members/{username}/copilot`
+> （シート割当状況を返す）は **`admin:org` が必須**で、一般開発者は自分の状態すら確認できません。
+> 本拡張がこちらを使わないのはこのためです。
+
+> 組織一覧の列挙（`GET /user/orgs` や GraphQL `viewer.organizations`）は使いません。
+> IP 許可リストや SSO が有効な組織が一覧から欠落し、「メンバーではない」と
+> **誤検知する**ことを実際に確認したためです。
+> また上記スコープが無い場合は `404` の誤読を防ぐため確認をスキップし、
+> 手動チェック（ステータスバーのクリック／コマンド実行）時にのみ権限を要求します。
+> Organization login の比較は大小文字を区別しません。
 
 ---
 
@@ -114,8 +180,9 @@ Authorization: token <VS Code の GitHub セッショントークン>
 | `copilotLicenseGuard.requireOrganization` | `""` | 必須の Organization login（空なら未チェック） |
 | `copilotLicenseGuard.checkIntervalMinutes` | `30` | 再チェック間隔（分、最小 5） |
 | `copilotLicenseGuard.modalWarning` | `true` | `false` にすると通知のみ（ブロックしない） |
-| `copilotLicenseGuard.warnOnOrganizationless` | `true` | 組織が空の場合も警告する |
+| `copilotLicenseGuard.warnOnOrganizationless` | `true` | 組織が空の場合も警告する（内部 API 併用時のみ評価） |
 | `copilotLicenseGuard.statusBar` | `true` | ステータスバー表示 |
+| `copilotLicenseGuard.useInternalApi` | `true` | 詳細情報の取得に非公式 API を併用する。`false` でも主判定は動作 |
 
 設定例（`settings.json`）:
 
@@ -179,7 +246,7 @@ code --install-extension copilot-license-guard-<version>.vsix
 ### Release からインストール（VSIX 配布）
 
 ```powershell
-gh release download v1.1.0 --repo Kuro524/copilot-license-guard --pattern "*.vsix"
+gh release download v1.2.0 --repo Kuro524/copilot-license-guard --pattern "*.vsix"
 code --install-extension .\copilot-license-guard.vsix
 ```
 
@@ -189,16 +256,19 @@ code --install-extension .\copilot-license-guard.vsix
 
 ## 送信されるデータ / プライバシー
 
-本拡張が外部に送信するのは、以下の 1 リクエストのみです。
+本拡張が外部に送信するのは、以下のリクエストのみです。いずれも宛先は `api.github.com` です。
 
-| 宛先 | 内容 | 目的 |
-|---|---|---|
-| `https://api.github.com/copilot_internal/user` | VS Code が保持する GitHub セッショントークン（`Authorization` ヘッダ） | 自分の Copilot プラン情報の取得 |
+| 宛先 | 実行条件 | 内容 | 目的 |
+|---|---|---|---|
+| `POST /graphql` | 常時 | GitHub セッショントークン（`Authorization` ヘッダ） | 自分の Copilot エンドポイント情報の取得 |
+| `GET /copilot_internal/user` | `useInternalApi: true` のとき | 同上 | プラン名・SKU・シート提供元の取得 |
+| `GET /user/memberships/orgs/{org}` | `requireOrganization` 設定時かつシート提供元が不明なとき | 同上 | 指定組織への所属確認 |
 
 - **テレメトリ・解析サービスへの送信は一切行いません。**
 - ソースコード・ファイル内容・プロンプト等を送信することはありません。
 - トークンは `vscode.authentication` から都度取得し、**拡張側で保存しません**。
 - 取得した情報は出力パネル（ローカル）にのみ記録されます。
+- 要求する権限は `read:user` のみです（`requireOrganization` を設定した場合のみ `read:org` を追加要求）。
 
 ---
 
