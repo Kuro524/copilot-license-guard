@@ -65,6 +65,25 @@ function Stop-Installer([int]$Code) {
     if ($PSCommandPath) { exit $Code }
 }
 
+# ネイティブコマンドの stdout / stderr をまとめて文字列の配列で返す。
+# Windows PowerShell 5.1 では $ErrorActionPreference = 'Stop' のとき、2>&1 で受け取った stderr の
+# 1 行目がそのまま例外になる。code CLI は成功時でも Node の DeprecationWarning を stderr に出すため、
+# この関数を通さないと「インストールは成功したのにエラー表示で終了」になる (v1.3.0 の実機テストで発生)。
+function Invoke-Native([scriptblock]$Command) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command 2>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { [string]$_ }
+        }
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
+# code CLI (Node) が出す警告のうち、利用者に見せても意味のないもの
+$NativeNoise = '^\(node:\d+\) |--trace-deprecation'
+
 # Windows PowerShell 5.1 は既定で TLS 1.2 を有効にしないことがある
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -174,14 +193,15 @@ try {
 
     Write-Step "インストール (`"$code`" --install-extension)"
     # --force: 同じ/古いバージョンが入っていても上書きする (更新にも使える)
-    $out = & $code --install-extension $vsix --force 2>&1
-    $out | ForEach-Object { Write-Host "    $_" }
-    if ($LASTEXITCODE -ne 0) {
-        throw "code --install-extension が終了コード $LASTEXITCODE で失敗しました。"
+    $out = @(Invoke-Native { & $code --install-extension $vsix --force })
+    $installExit = $LASTEXITCODE
+    $out | Where-Object { $_ -notmatch $NativeNoise } | ForEach-Object { Write-Host "    $_" }
+    if ($installExit -ne 0) {
+        throw "code --install-extension が終了コード $installExit で失敗しました。"
     }
 
     Write-Step "インストール結果の確認"
-    $installed = & $code --list-extensions --show-versions 2>$null |
+    $installed = @(Invoke-Native { & $code --list-extensions --show-versions }) |
         Where-Object { $_ -match ('^' + [regex]::Escape($ExtensionId) + '@') }
     if ($installed) {
         Write-Ok "インストール済み: $installed"

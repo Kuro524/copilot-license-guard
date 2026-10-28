@@ -25,6 +25,13 @@
 - 設定 `allowedPlans` の候補に `individual_pro_plus` / `individual_edu`（Student）を追加し、
   各値がどのプランに対応するかを説明に明記（`individual` = Pro、`individual_pro` = Pro+、`individual_max` = Max）。
 
+### Fixed
+- **install.ps1（2026-10-28 追記・VSIX は変更なし）:** 実機（VS Code 1.143 / Windows PowerShell 5.1）で、インストールは成功しているのに
+  「エラー」と表示して終了コード 1 になる問題を修正。`code` CLI が成功時でも Node の DeprecationWarning を stderr に出し、
+  PowerShell 5.1 では `2>&1` ＋ `$ErrorActionPreference = 'Stop'` の組み合わせでそれが例外になるため。
+  ネイティブコマンドの呼び出しを専用関数に分離し、Node の警告行は表示から除外するようにした（`install.sh` も同じ警告行を除外）。
+  スクリプトは `main` ブランチから取得されるため、再ダウンロードすれば修正版になります。
+
 ### Changed
 - CI を更新: Node.js 20（2026-04 で EOL、2026-09 に GitHub Actions ランナーから撤去）→ 24、
   `actions/checkout` / `actions/setup-node` / `actions/upload-artifact` を v4 → v7。

@@ -135,7 +135,8 @@ ok "ダウンロード完了 (${SIZE} bytes)"
 
 step "インストール (\"$CODE_CMD\" --install-extension)"
 # --force: 同じ/古いバージョンが入っていても上書きする (更新にも使える)
-"$CODE_CMD" --install-extension "$VSIX" --force 2>&1 | sed 's/^/    /' \
+# code CLI (Node) が stderr に出す DeprecationWarning は利用者に意味が無いので除外する
+"$CODE_CMD" --install-extension "$VSIX" --force 2>&1 | sed -E '/^\(node:[0-9]+\) |--trace-deprecation/d; s/^/    /' \
   || fail "code --install-extension が失敗しました。"
 
 step "インストール結果の確認"
