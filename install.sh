@@ -10,6 +10,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Kuro524/copilot-license-guard/main/install.sh -o install.sh
 #   bash install.sh                      # 最新版
 #   bash install.sh --version v1.3.0     # バージョン固定
+#   bash install.sh --nightly            # 最新の試験版 (pre-release)。追加機能は既定で無効
 #   bash install.sh --insiders           # VS Code Insiders へ
 #   bash install.sh --code /path/to/code # code コマンドのパスを明示
 #
@@ -26,6 +27,7 @@ ASSET_NAME="copilot-license-guard.vsix"
 EXTENSION_ID="Kuro524.copilot-license-guard"
 
 VERSION=""
+NIGHTLY=0
 INSIDERS=0
 CODE_PATH=""
 KEEP_VSIX=0
@@ -44,6 +46,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --version)  [ $# -ge 2 ] || fail "--version には値が必要です"; VERSION="$2"; shift 2 ;;
     --version=*) VERSION="${1#*=}"; shift ;;
+    --nightly)  NIGHTLY=1; shift ;;
     --insiders) INSIDERS=1; shift ;;
     --code)     [ $# -ge 2 ] || fail "--code には値が必要です"; CODE_PATH="$2"; shift 2 ;;
     --code=*)   CODE_PATH="${1#*=}"; shift ;;
@@ -104,6 +107,18 @@ download_url() {
   fi
 }
 
+latest_nightly_tag() {
+  # 試験版は releases/latest に含まれないため、一覧から最新の pre-release を探す (api.github.com が必須)。
+  # jq に依存せず、macOS (BSD grep/awk/sed) でも動く書き方にしている。
+  curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: copilot-license-guard-installer' \
+    "https://api.github.com/repos/$REPO/releases?per_page=30" 2>/dev/null \
+    | grep -oE '"(tag_name|draft|prerelease)"[[:space:]]*:[[:space:]]*("[^"]*"|true|false)' \
+    | awk -F'"' '
+        $2 == "tag_name"   { tag = $4; draft = 0; next }
+        $2 == "draft"      { if ($0 ~ /true/) draft = 1; next }
+        $2 == "prerelease" { if ($0 ~ /true/ && !draft && tag != "") { print tag; exit } }
+      ' || true
+}
 latest_tag() {
   # 表示用。api.github.com に出られない環境では空を返し、インストールは続行する
   curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: copilot-license-guard-installer' \
@@ -116,6 +131,12 @@ CODE_CMD="$(find_code)"
 ok "code コマンド: $CODE_CMD"
 
 step "VSIX のダウンロード"
+if [ "$NIGHTLY" -eq 1 ]; then
+  [ -z "$VERSION" ] || fail "--nightly と --version は同時に指定できません。"
+  VERSION="$(latest_nightly_tag)"
+  [ -n "$VERSION" ] || fail "試験版 (pre-release) が見つかりません。--nightly を外して安定版をインストールしてください。"
+  note "試験版 (nightly) を選択しました: $VERSION  ※追加機能は既定で無効です"
+fi
 URL="$(download_url)"
 LABEL="$VERSION"
 [ -n "$LABEL" ] || LABEL="$(latest_tag)"

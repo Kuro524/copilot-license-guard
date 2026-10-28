@@ -2,7 +2,7 @@
   "name": "copilot-license-guard",
   "displayName": "Copilot License Guard",
   "description": "GitHub Copilot が意図した Business / Enterprise ライセンスで動作しているか監視し、Free 等に落ちていたら強力に警告します。(判定は GitHub 公開 API を使用。GitHub 非公認)",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "Kuro524",
   "license": "MIT",
   "icon": "icon.png",
@@ -52,6 +52,21 @@
       {
         "command": "copilotLicenseGuard.showLog",
         "title": "Copilot License Guard: ログを表示",
+        "category": "Copilot License Guard"
+      },
+      {
+        "command": "copilotLicenseGuard.testReport",
+        "title": "Copilot License Guard: レポート送信をテスト（試験的機能）",
+        "category": "Copilot License Guard"
+      },
+      {
+        "command": "copilotLicenseGuard.suspendEnforcement",
+        "title": "Copilot License Guard: 遮断を一時停止 / 初期化（試験的機能）",
+        "category": "Copilot License Guard"
+      },
+      {
+        "command": "copilotLicenseGuard.previewUi",
+        "title": "Copilot License Guard: 警告画面をプレビュー（デモデータ）",
         "category": "Copilot License Guard"
       }
     ],
@@ -122,6 +137,109 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "プラン名・SKU・シート提供元といった**詳細情報**の取得に、GitHub 公式にサポートされていないエンドポイント `/copilot_internal/user` を併用します。\n\n`false` にしても、Business/Enterprise か個人プランかという**主判定は公開 GraphQL API で行われるため機能します**（違反時の説明が簡素になり、`warnOnOrganizationless` は評価されなくなります）。非公開 API の利用が組織ポリシー上問題になる場合は `false` にしてください。"
+        },
+        "copilotLicenseGuard.enforcement": {
+          "scope": "application",
+          "type": "string",
+          "enum": [
+            "warn",
+            "disableAI"
+          ],
+          "enumDescriptions": [
+            "警告のみ（既定）。モーダル／通知とステータスバーで知らせます。",
+            "警告に加えて、違反が「明確な証拠」で検出された間、VS Code の設定 chat.disableAIFeatures をユーザー設定で true にして Copilot の AI 機能（チャット・補完）を停止します。違反が解消されると元の値に戻します。"
+          ],
+          "default": "warn",
+          "markdownDescription": "**試験的機能（Experimental）。** 違反検出時の措置。`disableAI` は VS Code **1.104 以降**で動作し、設定の切替のたびに拡張ホストが再起動します。遮断の根拠は個人向けエンドポイント／Free SKU／アカウント不一致／必須 Organization の非メンバーなど明確なものに限り、未知の値や設定ミスでは遮断しません。詳細と制約は README を参照してください。"
+        },
+        "copilotLicenseGuard.enforcementOnUnknown": {
+          "scope": "application",
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**試験的機能（Experimental）。** `enforcement: disableAI` のとき、判定不能（同意未取得・API 障害・オフライン）が **15 分以上**続いた場合も遮断します。既定では判定不能時は現状維持（遮断中なら維持、未遮断なら何もしない）です。"
+        },
+        "copilotLicenseGuard.report.url": {
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "string",
+          "default": "",
+          "markdownDescription": "**試験的機能（Experimental）。** チェック結果を POST する組織の受け口（`https://` のみ。`localhost` に限り `http://` 可）。空なら送信しません。送信内容は PRIVACY.md を参照。この設定はユーザー（application）スコープで Settings Sync の対象外（`ignoreSync`）です。ワークスペースやリモート（devcontainer 等）の設定からは変更できません。"
+        },
+        "copilotLicenseGuard.report.headers": {
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "markdownDescription": "**試験的機能（Experimental）。** 送信時に付与する追加ヘッダー（例: `{\"Authorization\": \"Bearer ...\"}`）。値はログに出力しません。"
+        },
+        "copilotLicenseGuard.report.format": {
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "string",
+          "enum": [
+            "json",
+            "slack"
+          ],
+          "enumDescriptions": [
+            "構造化 JSON（schema=1）。SIEM・関数・独自の受け口向け。",
+            "Slack Incoming Webhook 互換の { \"text\": \"...\" }。"
+          ],
+          "default": "json",
+          "markdownDescription": "**試験的機能（Experimental）。** 送信形式。"
+        },
+        "copilotLicenseGuard.report.events": {
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "violation",
+              "recovered",
+              "unknown",
+              "heartbeat",
+              "enforcement",
+              "monitoringDisabled"
+            ]
+          },
+          "default": [
+            "violation",
+            "recovered",
+            "unknown",
+            "heartbeat",
+            "enforcement",
+            "monitoringDisabled"
+          ],
+          "markdownDescription": "**試験的機能（Experimental）。** 送信するイベント。`violation` は内容が変わったとき、または同じ内容でも 24 時間ごとに送ります。`heartbeat` は `report.heartbeatHours` ごと（受け側で「一定時間無音＝拡張が止められた端末」を検知する用途）。"
+        },
+        "copilotLicenseGuard.report.heartbeatHours": {
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "number",
+          "minimum": 1,
+          "default": 24,
+          "markdownDescription": "**試験的機能（Experimental）。** ハートビートの間隔（時間）。全端末が同時刻に送らないよう ±10% ずらします。"
+        },
+        "copilotLicenseGuard.report.deviceFields": {
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "hostname",
+              "osUser",
+              "installId"
+            ]
+          },
+          "default": [
+            "hostname",
+            "installId"
+          ],
+          "markdownDescription": "**試験的機能（Experimental）。** レポートに含める端末情報。`hostname`（コンピューター名）、`osUser`（OS のユーザー名。実名を含むことがあるため既定では送りません）、`installId`（この拡張が生成したランダムな識別子。VS Code の machineId は使いません）。"
         }
       }
     }
@@ -130,6 +248,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "test": "node --test \"test/**/*.test.js\"",
     "package": "vsce package"
   },
   "devDependencies": {

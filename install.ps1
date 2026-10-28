@@ -12,7 +12,11 @@
     通信先は GitHub のみです (github.com / 配信先の *.githubusercontent.com / バージョン表示用の api.github.com)。
 
 .PARAMETER Version
-    インストールするバージョン (例: v1.3.0 または 1.3.0)。省略時は最新リリース。
+    インストールするバージョン (例: v1.3.0 または 1.3.0)。省略時は最新の安定版。
+
+.PARAMETER Nightly
+    最新の試験版 (pre-release / nightly) をインストールします。-Version と同時には指定できません。
+    試験版の機能は既定で無効です。安定版へ戻すには -Nightly 無しで再実行します。
 
 .PARAMETER Insiders
     VS Code Insiders (code-insiders) にインストールします。
@@ -33,6 +37,10 @@
     .\install.ps1 -Version v1.3.0
 
 .EXAMPLE
+    # 最新の試験版 (nightly) をインストール
+    .\install.ps1 -Nightly
+
+.EXAMPLE
     # VS Code Insiders にインストール
     .\install.ps1 -Insiders
 
@@ -42,6 +50,7 @@
 [CmdletBinding()]
 param(
     [string]$Version = '',
+    [switch]$Nightly,
     [switch]$Insiders,
     [string]$CodePath = '',
     [switch]$KeepVsix
@@ -166,15 +175,30 @@ function Get-LatestTag {
     }
 }
 
+function Get-LatestNightlyTag {
+    # 試験版は releases/latest に含まれないため、一覧から最新の pre-release を探す (api.github.com が必須)
+    $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=30" -UseBasicParsing `
+         -Headers @{ 'User-Agent' = 'copilot-license-guard-installer'; 'Accept' = 'application/vnd.github+json' }
+    $pre = @($r | Where-Object { $_.prerelease -eq $true -and $_.draft -ne $true } | Select-Object -First 1)
+    if (-not $pre) { throw "試験版 (pre-release) が公開されていません。-Nightly を外して安定版をインストールしてください。" }
+    return $pre[0].tag_name
+}
+
 # 作業フォルダー: 推測しにくい名前で毎回新規作成し、終了時に削除する (共有 /tmp での衝突・差し替え対策)
 $workDir = Join-Path ([IO.Path]::GetTempPath()) ("copilot-license-guard-" + [guid]::NewGuid().ToString('N'))
 $exitCode = 1
 try {
+    if ($Nightly -and $Version) { throw "-Nightly と -Version は同時に指定できません。" }
+
     Write-Step "VS Code の確認"
     $code = Find-CodeCommand -UseInsiders:$Insiders.IsPresent -Explicit $CodePath
     Write-Ok "code コマンド: $code"
 
     Write-Step "VSIX のダウンロード"
+    if ($Nightly) {
+        $Version = Get-LatestNightlyTag
+        Write-Note "試験版 (nightly) を選択しました: $Version  ※追加機能は既定で無効です"
+    }
     $url = Get-DownloadUrl $Version
     $label = $Version
     if (-not $label) { $label = Get-LatestTag }

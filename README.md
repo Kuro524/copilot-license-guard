@@ -10,6 +10,21 @@ GitHub Copilot が **意図した Copilot Business / Enterprise ライセンス*
 > **公開 API** を使い、詳細情報の取得に **非公式 API を併用**します（設定で OFF 可）。
 > 詳細は「[重要なお知らせ](#重要なお知らせ必ずお読みください)」を必ずお読みください。
 
+> **試験的機能（Experimental）について:** v1.4.0 で追加した管理者向けレポート送信と違反時のソフト遮断は、**どちらも既定で無効**の試験的機能です。
+> 設定しない限り従来どおり動作します。有効化する前に「[試験的機能（Experimental）](#試験的機能experimental)」を必ずお読みください。
+
+## 画面イメージ
+
+違反を検出したときのモーダル（既定の動作。表示内容はデモデータ）:
+
+![違反モーダル（警告のみ）](docs/screenshots/modal-warning.png)
+
+ステータスバーの表示（上から: 違反を検出 / 試験的機能のソフト遮断で停止中 / 判定不能 / 正常）:
+
+![ステータスバーの 4 状態](docs/screenshots/statusbar-states.png)
+
+> これらの画面は、コマンド **`Copilot License Guard: 警告画面をプレビュー（デモデータ）`** で実際に違反を起こさずに確認できます。
+
 ## 目次
 
 - [インストール](#インストール)
@@ -20,6 +35,9 @@ GitHub Copilot が **意図した Copilot Business / Enterprise ライセンス*
   - [更新・アンインストール](#更新アンインストール)
   - [うまくいかないとき](#うまくいかないとき)
 - [組織内への展開（管理者向け）](#組織内への展開管理者向け)
+- [試験的機能（Experimental）](#試験的機能experimental)
+  - [管理者向けレポート送信](#管理者向けレポート送信試験的機能)
+  - [違反時のソフト遮断](#違反時のソフト遮断試験的機能)
 - [重要なお知らせ（必ずお読みください）](#重要なお知らせ必ずお読みください)
 - [なぜ必要か](#なぜ必要か)
 - [機能](#機能)
@@ -205,6 +223,126 @@ VSIX 配布のため自動更新されません。新しいリリースが出た
 
 ---
 
+## 試験的機能（Experimental）
+
+v1.4.0 で追加した以下の 2 機能は **試験的機能**です。安定版に同梱されていますが、**どちらも既定で無効**で、設定しない限り従来どおり動作します。
+
+| 項目 | 内容 |
+|---|---|
+| 位置づけ | 挙動やレポートの形式（`schema`）は今後のマイナーバージョンで変わる可能性があります。**少人数でパイロットしてから**展開してください |
+| 既定の挙動 | **両機能とも既定で無効。** 設定しない限り v1.3.0 と同じ動作です |
+| 設定の配布 | 両機能の設定はワークスペース（リポジトリ）からは変更できません。いずれも application スコープで、`report.*` は Settings Sync の対象外（`ignoreSync`）です。リモート（WSL / SSH / Dev Container）のウィンドウでもローカルのユーザー設定が使われ、`devcontainer.json` 等のリモート設定からは変更できません |
+| 見え方の確認 | コマンド **`Copilot License Guard: 警告画面をプレビュー（デモデータ）`** で、利用者に表示されるモーダル・ステータスバー・通知をデモデータで再現できます（実際の判定や設定は変更しません） |
+
+### 管理者向けレポート送信（試験的機能）
+
+チェック結果を、組織が用意した HTTPS の受け口（Slack Incoming Webhook・Teams Workflows・Azure Functions・SIEM など）へ POST します。
+クライアント側の検知を**記録として残す**ための機能で、受け側で「一定時間ハートビートが無い端末＝拡張が止められた／許可を押していない」も検知できます。
+
+| 設定キー（`copilotLicenseGuard.`） | 既定 | 説明 |
+|---|---|---|
+| `report.url` | `""` | 送信先。**空なら送信しません。** `https://` のみ（`localhost` は `http://` 可）。認証情報を URL に埋め込まないでください |
+| `report.headers` | `{}` | 追加ヘッダー（`Authorization` 等）。値はログに出ません |
+| `report.format` | `"json"` | `json`（構造化、schema=1）／`slack`（`{ "text": "..." }`） |
+| `report.events` | 全部 | `violation` / `recovered` / `unknown` / `heartbeat` / `enforcement` / `monitoringDisabled` |
+| `report.heartbeatHours` | `24` | ハートビート間隔（±10% のジッター付き） |
+| `report.deviceFields` | `["hostname","installId"]` | 端末情報。`osUser`（OS ユーザー名。実名を含むことがある）は明示した場合のみ |
+
+**送信タイミング**: 違反は内容が変わったとき（同じ内容なら 24 時間ごと）、違反→正常で `recovered`、判定不能への遷移で `unknown`、
+遮断の適用/解除/上書き検知で `enforcement`（設定変更の前に記録し、拡張ホストの再起動をまたいでも次回チェックで送ります。遅延分には `deferred: true` が付きます）、
+`copilotLicenseGuard.enabled` を false にしたとき `monitoringDisabled`、それに定期の `heartbeat`。`recovered` は途中に判定不能を挟んでも、未解消の違反があれば送ります。
+送信の成否は判定や表示に影響しません（失敗時は 1 回だけ再送、`429` は `Retry-After` を尊重）。
+
+**送る内容**（`json` の例。[PRIVACY.md](./PRIVACY.md#5-試験的機能-管理者向けレポート送信) に全項目）:
+
+```json
+{ "schema": 1, "event": "violation", "eventId": "<送信ごとに一意な UUID>", "dedupeKey": "<同じ出来事なら同じ値 (32 桁の hex)>", "seq": 12, "timestamp": "2026-10-28T09:00:00.000Z",
+  "status": "violation", "account": "octocat", "plan": "free", "tier": "individual", "sku": "free_limited_copilot",
+  "violationCodes": ["individual_tier", "free_sku"], "violations": ["個人向け Copilot エンドポイントで動作しています(組織シート未適用)", "SKU が free_limited_copilot (Copilot Free 確定)"],
+  "requiredOrganization": "my-org", "requiredOrgMatch": false, "enforcementMode": "warn", "enforcementActive": false,
+  "extension": { "id": "Kuro524.copilot-license-guard", "version": "1.4.0" },
+  "vscode": { "version": "1.143.1", "remoteName": null },
+  "device": { "hostname": "PC-0123", "installId": "…" } }
+```
+
+送らないもの: トークン、ソースコード・ファイル・パス、プロンプト、所属 Organization の一覧（必須 Organization との一致だけを送ります）。
+`violations` の文言は違反コードから生成した定型文で、画面に出る文言（組織名やエンドポイントなどの実データを含む）はそのまま送りません。
+`installId` は本拡張が生成するランダムな識別子で、VS Code の machineId ではありません。
+
+**設定例（Slack）**
+
+```json
+{
+  "copilotLicenseGuard.report.url": "https://hooks.slack.com/services/XXX/YYY/ZZZ",
+  "copilotLicenseGuard.report.format": "slack"
+}
+```
+
+設定後、コマンドパレットの **`Copilot License Guard: レポート送信をテスト（試験的機能）`** で `event: "test"` を送って疎通を確認できます。
+送信が有効な端末では、利用者に「この端末の状態が `<host>` へ送信されます」と **1 回だけ通知**します（透明性のため）。
+
+![レポート送信が有効なときの通知](docs/screenshots/notification-report.png)
+
+**限界（必ずお読みください）**
+
+- 送信元は利用者自身の VS Code です。**認証されていない自己申告**であり、監査証跡の代替にはなりません（受け口側で `report.headers` の鍵を検証しても、利用者はその鍵を読めます）。
+- 利用者が拡張を無効化すれば送信も止まります → `heartbeat` を有効にし、受け側で無音を検知してください。
+- 複数ウィンドウを開いていると同じ出来事が重複して届くことがあります（直前 60 秒の重複は抑制）。`eventId` は送信ごとに一意なので、
+  **重複排除には `dedupeKey`**（同じ出来事なら同じ値。違反→復帰→再違反や 24 時間後の再送は別の値になります）を使ってください。
+- リダイレクトは追いません（別ホストへヘッダーや本文が流れるのを防ぐため）。受け口は直接 200 系を返す URL にしてください。
+
+### 違反時のソフト遮断（試験的機能）
+
+`"copilotLicenseGuard.enforcement": "disableAI"` にすると、違反を**明確な証拠**で検出している間、
+VS Code の公式設定 **`chat.disableAIFeatures`**（VS Code 1.104 以降。「GitHub Copilot のチャットと補完を含む組み込み AI 機能を無効化して隠す」）を
+**ユーザー設定で `true`** にし、違反が解消されると元の値に戻します。
+
+![違反モーダル（遮断あり）](docs/screenshots/modal-enforced.png)
+
+| 設定キー（`copilotLicenseGuard.`） | 既定 | 説明 |
+|---|---|---|
+| `enforcement` | `"warn"` | `"disableAI"` で遮断を有効化 |
+| `enforcementOnUnknown` | `false` | `true` なら判定不能が **15 分以上**続いた場合も遮断（オフライン時も止まる厳格運用） |
+
+**遮断の根拠にする違反（明確な証拠）**: 個人向けエンドポイント（`individual_tier`）、既知の個人プラン名、`free_limited_copilot` SKU、
+Free のクォータ・シート未割当シグナル、必須 Organization の非メンバー（404）／別組織のシート、アカウント不一致。
+**根拠にしない違反**: 未知のエンドポイント・SKU・プラン名、`allowedPlans` の設定ミス、組織一覧が空、参加未完了（pending）。
+これらは警告にとどめます（GitHub 側の文字列変更 1 つで全端末の AI 機能が止まる事故を避けるため）。
+
+**動作の要点**
+
+- 元の値は設定を書き換える**前**に記録し、以後は上書きしません（自分が書いた `true` を元値と誤認しない）。復元は「自分が書いた `true` が残っている場合」だけ行います。
+- 判定不能（同意未取得・API 障害）では既定で**現状維持**です。遮断中なら、正常を確認するまで解除しません（fail-safe）。
+- `chat.disableAIFeatures` を切り替えると VS Code は Copilot Chat を無効化／再有効化し、**拡張ホストを再起動**します（デバッグセッションや言語サーバーが中断します）。
+  往復を防ぐため、変更は前回から 5 分以上空け、1 時間に 4 回までに制限しています。
+- 遮断状態が他端末へ同期されないよう、`settingsSync.ignoredSettings` に `chat.disableAIFeatures` を追加します（自動では外しません）。
+- ステータスバーは `Copilot: FREE 停止中`、モーダルの先頭に「⛔ … AI 機能を一時停止しました」と表示します。
+- **`Copilot License Guard: 遮断を一時停止 / 初期化（試験的機能）`** コマンドで、60 分／180 分の一時停止（ログとレポートに記録）、または記録の初期化（復旧用）ができます。
+  一時停止は期限付きで、違反が続いていれば期限後に再適用されます。
+- `enforcement` を `warn` に戻す／`copilotLicenseGuard.enabled` を false にすると、遮断中であれば解除します。
+
+**限界（必ずお読みください）**
+
+- **強制ではなく「摩擦＋記録」です。** 利用者はユーザー設定を手で戻せます（次回チェックで再適用）。
+- **VS Code は Copilot Chat 拡張を無効化しようとし、依存する拡張があると確認ダイアログを出します**（実測 1.143:
+  「'GitHub Copilot Chat' 拡張機能のみを無効にすることはできません。'GitHub Copilot modernization for .NET'、'GitHub Copilot modernization'、その他の拡張機能がこれに依存しています。これらの拡張機能をすべて無効にしますか?」）。
+  利用者が**キャンセル**しても設定は true のままなので Chat の UI は隠れますが、拡張自体は有効のまま残ります。
+  **「すべて無効にする」**を選ぶと依存拡張も無効化され、**違反解消後に VS Code が再有効化するのは Copilot Chat だけ**です。
+  本拡張は適用時に読み込まれていた拡張を記録し、復帰後に無効のまま残った拡張を通知します（「無効な拡張機能を表示」で `@disabled` を開きます）。
+
+  ![復帰後に無効のまま残った拡張の通知](docs/screenshots/notification-left-disabled.png)
+- **利用者が Copilot Chat を手で有効化すると、VS Code が `chat.disableAIFeatures` を自動で false に戻します**（上記ダイアログに答えた瞬間にも一時的に起きます）。
+  本拡張は次回チェックで再適用し、レポートに `reapply` として残ります（前回変更から 5 分・1 時間 4 回の上限内）。
+- `chat.disableAIFeatures` は window スコープのため、開いているワークスペースの `.vscode/settings.json`（VS Code の「このワークスペースで AI 機能を有効にする」操作を含む）や
+  リモート設定で `false` が指定されていると無効化できません。本拡張はこれを検知してツールチップとレポート（`overriddenBy`）に出しますが、リポジトリ側の設定は書き換えません。
+- VS Code のプロファイルごとに設定は別です。拡張が入っていないプロファイルでは働きません。
+- VS Code 1.104 未満では設定が存在しないため遮断は機能しません（警告のみ。起動ログに注意を出します）。
+- Settings Sync の除外に追加する前に同期が走った場合など、他端末に `true` が波及する可能性はゼロではありません。
+- **復旧手順（拡張を無効化・削除した後も AI 機能が止まったままのとき）**: ユーザー設定の `chat.disableAIFeatures` を削除（または `false`）し、
+  拡張機能ビューで **GitHub Copilot Chat** が無効化されていれば有効化してください。拡張が入っている場合は上記コマンドの「初期化」でも戻せます。
+
+---
+
 ## 重要なお知らせ（必ずお読みください）
 
 ### プラン種別の判定は GitHub の**公開 API** で行います
@@ -285,7 +423,8 @@ Copilot のポリシーは組織・企業のシートを持つユーザーにし
 - **制限モード・仮想ワークスペース・リモート開発に対応** — ワークスペースのファイルには一切アクセスしないため、
   信頼されていないワークスペースでも監視を継続します。Remote-SSH / WSL / Dev Container / Codespaces（VS Code デスクトップから接続した場合）では
   ローカル側（UI 拡張）で動作し、リモート側へのインストールは不要です
-- **設定はユーザースコープのみ** — リポジトリ内の `.vscode/settings.json` から監視を無効化・緩和することはできません
+- **設定はユーザースコープのみ** — 本拡張の設定（監視の有効/無効・許可プラン等）はリポジトリ内の `.vscode/settings.json` から変更できません
+  （試験的機能の遮断が書き換える VS Code 側の設定 `chat.disableAIFeatures` はこの限りではありません。[詳細](#違反時のソフト遮断試験的機能)）
 
 ---
 
@@ -377,6 +516,9 @@ GET https://api.github.com/user/memberships/orgs/{org}
 | `copilotLicenseGuard.warnOnOrganizationless` | `true` | 組織が空の場合も警告する（内部 API 併用時のみ評価） |
 | `copilotLicenseGuard.statusBar` | `true` | ステータスバー表示 |
 | `copilotLicenseGuard.useInternalApi` | `true` | 詳細情報の取得に非公式 API を併用する。`false` でも主判定は動作 |
+| `copilotLicenseGuard.enforcement` | `"warn"` | **試験的機能。** `"disableAI"` で違反時に Copilot の AI 機能を一時停止（[詳細](#違反時のソフト遮断試験的機能)） |
+| `copilotLicenseGuard.enforcementOnUnknown` | `false` | **試験的機能。** 判定不能が 15 分以上続いた場合も遮断する |
+| `copilotLicenseGuard.report.*` | 無効 | **試験的機能。** 管理者向けレポート送信（[詳細](#管理者向けレポート送信試験的機能)）。Settings Sync 対象外 |
 
 設定例（`settings.json`）:
 
@@ -395,6 +537,9 @@ GET https://api.github.com/user/memberships/orgs/{org}
 |---|---|
 | `Copilot License Guard: 今すぐライセンスを確認` | 手動チェック（結果が OK でも通知） |
 | `Copilot License Guard: ログを表示` | 出力パネルを開く |
+| `Copilot License Guard: レポート送信をテスト（試験的機能）` | `report.url` へ `event: "test"` を送って疎通確認 |
+| `Copilot License Guard: 遮断を一時停止 / 初期化（試験的機能）` | 遮断の 60 分／180 分停止、または記録の初期化（復旧用）。ログとレポートに記録 |
+| `Copilot License Guard: 警告画面をプレビュー（デモデータ）` | モーダル・ステータスバー・通知をデモデータで表示（管理者が利用者の見え方を確認する用） |
 
 ステータスバーの項目をクリックしても手動チェックが走ります。
 
@@ -444,6 +589,8 @@ Organization Settings > Copilot > Access を **`assign_selected`（明示的に�
 - トークンは `vscode.authentication` から都度取得し、**拡張側で保存しません**。
 - 取得した情報は出力パネル（ローカル）にのみ記録されます。
 - 要求する権限は `read:user` のみです（`requireOrganization` を設定した場合のみ `read:org` を追加要求）。
+- **試験的機能（既定 OFF）:** 組織が `copilotLicenseGuard.report.url` を設定した端末では、チェック結果（アカウント名・プラン・違反理由・端末名など。
+  トークンは含まない）を**その URL へ**送信します。詳細は [管理者向けレポート送信](#管理者向けレポート送信試験的機能) と PRIVACY.md を参照。
 
 ---
 
@@ -461,6 +608,10 @@ code --install-extension copilot-license-guard.vsix --force
 ```
 
 - VS Code でフォルダーを開き **F5** を押すと、拡張機能開発ホストでデバッグ実行できます（[`.vscode/launch.json`](./.vscode/launch.json)）。
+- **スクリーンショット撮影用フック:** 環境変数 `CLG_PREVIEW=<modal|modal-enforced|statusbar:warn|statusbar:enforced|statusbar:unknown|statusbar:ok|notice|left-disabled|ok>` を付けて VS Code を起動すると、
+  起動 6 秒後にその画面をデモデータで表示します（`docs/screenshots/` はこれで撮影。通常利用では未設定）。
+- **試験版（pre-release）の出し方:** `package.json` の `version` を `X.Y.Z-nightly.N` にしてタグ `vX.Y.Z-nightly.N` を push すると、CI が `--pre-release` の VSIX と Pre-release を作ります
+  （`releases/latest` には影響しません。`install.ps1 -Nightly` / `install.sh --nightly` で導入可）。
 - **リリース手順:** `package.json` の `version` と `CHANGELOG.md` を更新 → コミット → `git tag vX.Y.Z` → push。
   タグ push をトリガーに [GitHub Actions](./.github/workflows/build.yml) がビルドし、VSIX を添付した Release を自動作成します
   （タグと `package.json` の `version` が一致しない場合は失敗します）。

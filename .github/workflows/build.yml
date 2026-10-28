@@ -28,6 +28,9 @@ jobs:
       - name: Compile
         run: npm run compile
 
+      - name: Test
+        run: npm test
+
       # タグと package.json のバージョンが食い違ったまま Release を作らない
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -38,8 +41,23 @@ jobs:
             exit 1
           fi
 
+      # バージョンに -nightly を含むビルドは試験版(pre-release)として扱う
+      - name: Detect nightly
+        id: channel
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          case "${PKG_VERSION}" in
+            *-nightly*) echo "nightly=true"  >> "${GITHUB_OUTPUT}"; echo "試験版ビルド: ${PKG_VERSION}" ;;
+            *)          echo "nightly=false" >> "${GITHUB_OUTPUT}" ;;
+          esac
+
       - name: Package VSIX
-        run: npx --yes @vscode/vsce@4 package --out copilot-license-guard.vsix
+        run: |
+          if [ "${{ steps.channel.outputs.nightly }}" = "true" ]; then
+            npx --yes @vscode/vsce@4 package --pre-release --out copilot-license-guard.vsix
+          else
+            npx --yes @vscode/vsce@4 package --out copilot-license-guard.vsix
+          fi
 
       # .vscodeignore の漏れ(スクリプトや CI 定義の混入)を目視確認できるようにする
       - name: List VSIX contents
@@ -53,13 +71,21 @@ jobs:
 
       # タグ push 時のみ Release を作成して VSIX を添付する。
       # 本文はインストール手順(テンプレート) + 自動生成されたリリースノート。
+      # 試験版は --prerelease で作成し、releases/latest(安定版の導線)には載せない。
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sed "s/{{VERSION}}/${GITHUB_REF_NAME}/g" .github/release-notes.md > "${RUNNER_TEMP}/notes.md"
+          if [ "${{ steps.channel.outputs.nightly }}" = "true" ]; then
+            TEMPLATE=.github/release-notes-nightly.md
+            EXTRA=(--prerelease --title "${GITHUB_REF_NAME}（試験版 / nightly）")
+          else
+            TEMPLATE=.github/release-notes.md
+            EXTRA=(--title "${GITHUB_REF_NAME}")
+          fi
+          sed "s/{{VERSION}}/${GITHUB_REF_NAME}/g" "${TEMPLATE}" > "${RUNNER_TEMP}/notes.md"
           gh release create "${GITHUB_REF_NAME}" copilot-license-guard.vsix \
-            --title "${GITHUB_REF_NAME}" \
+            "${EXTRA[@]}" \
             --notes-file "${RUNNER_TEMP}/notes.md" \
             --generate-notes

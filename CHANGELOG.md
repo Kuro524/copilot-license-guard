@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.4.0] - 2026-10-28
+
+追加された 2 機能（管理者向けレポート送信・違反時のソフト遮断）は **試験的機能（Experimental）** で、**どちらも既定で無効**です。
+設定しない限り v1.3.0 と同じ挙動です。挙動やレポートの形式（`schema`）は今後のマイナーバージョンで変わる可能性があります。
+
+### Added
+- **管理者向けレポート送信（opt-in）。** `copilotLicenseGuard.report.url` を設定した端末だけが、チェック結果を組織の受け口へ POST する。
+  イベント: `violation`（内容変化時、同一内容は 24 時間ごと）/ `recovered` / `unknown` / `enforcement` / `monitoringDisabled` / `heartbeat`（既定 24 時間 ±10%）/ `test`。
+  形式は `json`（schema 1）または `slack`。設定はユーザー（application）スコープで Settings Sync 対象外（`ignoreSync`）、ワークスペース/リモート設定から変更不可。
+  送るのはアカウント名・プラン・違反コード/理由・必須 Organization との一致・拡張/VS Code 版・端末情報（既定は hostname と拡張生成の installId。
+  OS ユーザー名は opt-in）。トークン・コード・パス・所属 Organization 一覧は送らない。`https://` のみ・認証情報入り URL 拒否・リダイレクト非追従・
+  10 秒タイムアウト・1 回再送・`429` は `Retry-After` を尊重。送信先ホスト名以外はログに出さない。
+  コマンド「レポート送信をテスト」、送信有効時の利用者向け 1 回限りの通知を追加。
+- **違反時のソフト遮断（opt-in）。** `copilotLicenseGuard.enforcement: "disableAI"` で、違反を明確な証拠で検出している間、
+  VS Code の公式設定 `chat.disableAIFeatures`（1.104+）をユーザー設定で `true` にし、解消で元に戻す。
+  - 根拠は個人向けエンドポイント・既知の個人プラン名・Free SKU/クォータ/シート未割当・必須 Organization 非メンバー/別組織シート・アカウント不一致に限定。
+    未知の値や設定ミスによる違反では遮断しない。
+  - 元の値は設定を書き換える**前**に記録し、以後上書きしない（設定変更で拡張ホストが再起動しても復元できる）。復元は自分が書いた `true` が残っている場合のみ。
+  - 判定不能は既定で現状維持（`enforcementOnUnknown` で 15 分の猶予後に遮断可）。`warn` に戻す／監視を無効化すると解除。
+  - 往復防止（前回変更から 5 分、1 時間 4 回まで）、複数ウィンドウの同時書き込み抑止、ワークスペース/フォルダー設定による上書きの検知と報告、
+    `settingsSync.ignoredSettings` への追加（他端末への波及防止）。
+  - **実機で確認した VS Code 側の挙動への対応**: 設定を true にすると VS Code は Copilot Chat と**それに依存する拡張**（例: GitHub Copilot modernization）を
+    確認ダイアログ付きでまとめて無効化し、false に戻しても Copilot Chat しか再有効化しない → 適用時に読み込まれていた拡張を記録し、
+    復帰後に無効のまま残った拡張を通知（`@disabled` を開くボタン付き）。また VS Code は Copilot Chat が有効化されると設定を自動で false に戻す
+    （ダイアログに答えた瞬間にも一時的に起きる）→ 次回チェックで再適用し `reapply` として記録。
+  - コマンド「遮断を一時停止 / 初期化」（60/180 分の期限付き停止、復旧用の初期化。ログとレポートに記録）。
+  - ステータスバー `Copilot: FREE 停止中`、モーダル先頭に停止の旨を表示。
+- レポートの `violations` は違反コードから生成した定型文のみ（画面用の文言に含まれる組織名などの実データは送らない）。
+  `enforcement` イベントは設定変更の前に記録し、拡張ホスト再起動後も次回チェックで送る（`deferred`）。`recovered` は未解消の違反を基準に判定し、
+  途中に判定不能を挟んでも送る。ハートビートの次回時刻は送信成功後に進め、違反の 24 時間再送タイマーとは独立。
+  `eventId` は送信ごとに一意、重複排除には `dedupeKey`（同じ出来事なら同じ値）を使う（複数ウィンドウの同時送信は実機で確認済み）。
+- 違反に機械可読な `codes`（`individual_tier` / `free_sku` / `org_not_member` …）を付与。レポートの重複排除と遮断の根拠判定に使用。
+- README と Release に警告画面のスクリーンショット（デモデータ）を追加（docs/screenshots/）。
+- コマンド「警告画面をプレビュー（デモデータ）」を追加。管理者が利用者に表示されるモーダル・ステータスバー・通知を、実際に違反を起こさずに確認できる。
+- `npm test`（node:test）を追加し、判定ロジック 82 件＋試験的機能 37 件を CI で実行。
+- 将来の試験版配布のための基盤: バージョンに `-nightly` を含むビルドは CI が `vsce package --pre-release` と `gh release --prerelease` で公開し、
+  `install.ps1 -Nightly` / `install.sh --nightly` が最新の pre-release を解決する（v1.4.0 時点で pre-release は未公開）。
+
+### Changed
+- 違反時の処理順を「遮断 → レポート → 表示」にし、モーダルを閉じるまで遮断や送信が止まらないようにした。
+- `internalFreeSignals()` が文言に加えてコードを返すようになった（外部仕様の変更なし）。
+
+### Notes
+- 遮断は「強制」ではなく「摩擦＋記録」。利用者はユーザー設定を手で戻せる（次回チェックで再適用）。
+  `chat.disableAIFeatures` は window スコープのため、ワークスペース/リモート設定の `false` で上書きされうる（検知して報告する）。
+- 復旧手順（拡張を外した後も AI 機能が止まったままの場合）: ユーザー設定の `chat.disableAIFeatures` を削除し、無効化された GitHub Copilot Chat を有効化する。
+
 ## [1.3.0] - 2026-10-28
 
 ### Added

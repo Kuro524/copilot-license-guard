@@ -22,6 +22,12 @@ curl -fL -o copilot-license-guard.vsix https://github.com/Kuro524/copilot-licens
 > 既にインストール済みの場合も同じ手順で上書き更新されます。
 > VSIX 配布のため **自動更新はされません**。新しいバージョンが出たら再度実行してください。
 
+違反を検出したときの画面（デモデータ）:
+
+![違反モーダル](https://raw.githubusercontent.com/Kuro524/copilot-license-guard/{{VERSION}}/docs/screenshots/modal-warning.png)
+
+![ステータスバー](https://raw.githubusercontent.com/Kuro524/copilot-license-guard/{{VERSION}}/docs/screenshots/statusbar-states.png)
+
 詳しい手順・組織内への展開方法・設定項目は [README](https://github.com/Kuro524/copilot-license-guard#readme) を参照してください。
 
 ---
