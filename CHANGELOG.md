@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.3.0] - 2026-10-28
+
+### Added
+- **インストール手順の全面見直し。** README の先頭に「インストール」節を新設し、
+  VS Code の画面から入れる方法（VSIX からのインストール）／コマンド 1 行／インストールスクリプトの
+  3 通りを手順化。GitHub CLI（`gh`）前提の手順を廃止し、`releases/latest/download/...` の固定 URL を使うようにした。
+  あわせて「動作確認」「更新・アンインストール」「うまくいかないとき」「組織内への展開（管理者向け）」節を追加。
+- インストールスクリプト `install.ps1`（Windows PowerShell 5.1 / PowerShell 7）と `install.sh`（macOS / Linux）を同梱。
+  VSIX のダウンロード → `code` コマンドの検出（PATH に無くても既定のインストール先を探索）→
+  インストール → 結果確認を自動化。バージョン固定・VS Code Insiders にも対応。VSIX には含まれない。
+- GitHub Release の本文にインストール手順を自動掲載するようにした（`.github/release-notes.md`）。
+- `PRIVACY.md` を追加。送信先・送信内容・取得する情報・ローカルに保存するもの・要求スコープを、
+  組織での導入審査に使える形で一覧化。
+- 拡張アイコン（`icon.png`）を追加。
+- **制限モード（信頼されていないワークスペース）・仮想ワークスペースでも動作するようにした**
+  （`capabilities.untrustedWorkspaces` / `virtualWorkspaces` を宣言）。
+  これまでは信頼されていないフォルダーを開くと拡張自体が無効化され、監視が止まっていた。
+- **Remote-SSH / WSL / Dev Container / Codespaces（VS Code デスクトップから接続時）でローカル側（UI 拡張）で動作するようにした**
+  （`extensionKind: ["ui", "workspace"]`）。リモート側へ別途インストールする必要がなくなった。
+- **すべての設定をユーザー（アプリケーション）スコープに変更**（`"scope": "application"`）。
+  これまではリポジトリ内の `.vscode/settings.json` に `"copilotLicenseGuard.enabled": false` 等を置くだけで
+  監視を無効化・緩和できた。ワークスペース設定に書いていた値は無視されるようになるため、ユーザー設定へ移してください。
+- 設定 `allowedPlans` の候補に `individual_pro_plus` / `individual_edu`（Student）を追加し、
+  各値がどのプランに対応するかを説明に明記（`individual` = Pro、`individual_pro` = Pro+、`individual_max` = Max）。
+
+### Changed
+- CI を更新: Node.js 20（2026-04 で EOL、2026-09 に GitHub Actions ランナーから撤去）→ 24、
+  `actions/checkout` / `actions/setup-node` / `actions/upload-artifact` を v4 → v7。
+  タグと `package.json` の `version` が一致しない場合は Release を作成せず失敗するチェックを追加。
+  `@vscode/vsce` をメジャー 4 に固定し、VSIX の内容一覧をログに出すようにした。
+- 開発依存を更新: `typescript` 5.5 → 5.9、`@types/node` 20 → 22。`vscode:prepublish` スクリプトを追加。
+- HTTP リクエストの `User-Agent` に含めるバージョンを、ハードコード（`1.2.0` のまま更新漏れ）から
+  `package.json` の `version` の自動取得に変更。起動ログにバージョンと VS Code のバージョンを出力。
+- 実測で確認した SKU `copilot_for_business_seat_quota`（Business）と `free_educational_quota`（Student）を
+  既知 SKU として明示的に対応付け（従来も部分一致で正しく判定されていた）。
+- README の記述を 2026-10 時点の情報に更新（Copilot Student / Max プランの追記、
+  「Free の利用を組織側で禁止する設定が無い」ことの再確認と EMU の例外の明記）。
+
 ## [1.2.0] - 2026-08-21
 
 ### Changed

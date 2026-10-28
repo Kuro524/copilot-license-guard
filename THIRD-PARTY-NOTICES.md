@@ -9,7 +9,8 @@
 本拡張の配布物（`.vsix`）に含まれるのは、以下の自作ファイルのみです。
 
 - `out/extension.js` — 本プロジェクトのソース (`src/extension.ts`) をコンパイルしたもの
-- `package.json` / `README.md` / `CHANGELOG.md` / `LICENSE`
+- `package.json` / `README.md` / `CHANGELOG.md` / `LICENSE` / `PRIVACY.md` / `THIRD-PARTY-NOTICES.md`（本ファイル）
+- `icon.png` — 本プロジェクトで作成した拡張アイコン
 
 `package.json` の `dependencies` は空であり、**サードパーティのコードを再配布していません**。
 

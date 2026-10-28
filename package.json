@@ -2,9 +2,10 @@
   "name": "copilot-license-guard",
   "displayName": "Copilot License Guard",
   "description": "GitHub Copilot が意図した Business / Enterprise ライセンスで動作しているか監視し、Free 等に落ちていたら強力に警告します。(判定は GitHub 公開 API を使用。GitHub 非公認)",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "publisher": "Kuro524",
   "license": "MIT",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/Kuro524/copilot-license-guard.git"
@@ -26,6 +27,17 @@
     "business",
     "governance"
   ],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": true,
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "ワークスペース内のファイルには一切アクセスしないため、制限モードでも監視を継続します。"
+    }
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -47,11 +59,13 @@
       "title": "Copilot License Guard",
       "properties": {
         "copilotLicenseGuard.enabled": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "description": "ライセンス監視を有効にします。"
         },
         "copilotLicenseGuard.allowedPlans": {
+          "scope": "application",
           "type": "array",
           "items": {
             "type": "string",
@@ -60,7 +74,9 @@
               "enterprise",
               "individual",
               "individual_pro",
+              "individual_pro_plus",
               "individual_max",
+              "individual_edu",
               "free"
             ]
           },
@@ -68,35 +84,41 @@
             "business",
             "enterprise"
           ],
-          "description": "許可する Copilot プラン。これ以外を検出すると警告します。"
+          "description": "許可する Copilot プラン。これ以外を検出すると警告します。個人プランの値: free (Free) / individual (Pro) / individual_pro, individual_pro_plus (Pro+) / individual_max (Max) / individual_edu (Student)。"
         },
         "copilotLicenseGuard.requireOrganization": {
+          "scope": "application",
           "type": "string",
           "default": "",
           "description": "Copilot シートの提供元として必須の GitHub Organization login。空なら未チェック。例: my-org"
         },
         "copilotLicenseGuard.checkIntervalMinutes": {
+          "scope": "application",
           "type": "number",
           "default": 30,
           "minimum": 5,
           "description": "再チェック間隔(分)。Copilot トークンは約30分で更新されるため 30 前後を推奨。"
         },
         "copilotLicenseGuard.modalWarning": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "description": "違反検出時にモーダルダイアログで警告します。無効にすると通知のみになります。"
         },
         "copilotLicenseGuard.warnOnOrganizationless": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "description": "組織 (organization_login_list) が空の場合も警告します。"
         },
         "copilotLicenseGuard.statusBar": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "description": "ステータスバーに現在の Copilot プランを表示します。"
         },
         "copilotLicenseGuard.useInternalApi": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "markdownDescription": "プラン名・SKU・シート提供元といった**詳細情報**の取得に、GitHub 公式にサポートされていないエンドポイント `/copilot_internal/user` を併用します。\n\n`false` にしても、Business/Enterprise か個人プランかという**主判定は公開 GraphQL API で行われるため機能します**（違反時の説明が簡素になり、`warnOnOrganizationless` は評価されなくなります）。非公開 API の利用が組織ポリシー上問題になる場合は `false` にしてください。"
@@ -105,13 +127,14 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.20.5",
     "@types/vscode": "^1.90.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.9.3"
   }
 }

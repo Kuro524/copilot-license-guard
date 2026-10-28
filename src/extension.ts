@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 /**
  * プラン種別。公開 API (GraphQL `viewer.copilotEndpoints.api`) で判別できる粒度。
  * - business    : Copilot Business / Enterprise (法人シート)
- * - individual  : Copilot Free / Pro / Pro+ / Max (個人プラン)
+ * - individual  : Copilot Free / Student / Pro / Pro+ / Max (個人プラン)
  * 公開 API では business と enterprise、および free と pro/max は区別できない。
  */
 type PlanTier = 'business' | 'individual' | 'unknown';
@@ -60,7 +60,11 @@ const COPILOT_USER_API = 'https://api.github.com/copilot_internal/user';
 /** 公開 GraphQL: 自分の Copilot エンドポイント情報(公式スキーマに掲載されたフィールド) */
 const QUERY_COPILOT_ENDPOINTS = '{ viewer { login copilotEndpoints { api } } }';
 
-const USER_AGENT = 'CopilotLicenseGuard/1.2.0';
+/**
+ * HTTP リクエストの User-Agent。activate() で package.json の version から組み立てる
+ * (バージョンをここにハードコードすると更新漏れが起きるため)。
+ */
+let userAgent = 'CopilotLicenseGuard/unknown';
 
 /**
  * Copilot が使う GitHub セッションを探すためのスコープ候補(広い順に試す)。
@@ -139,8 +143,10 @@ function skuToPlan(sku: string | undefined): string {
     switch (s) {
         case 'free_limited_copilot': return 'free';
         case 'no_auth_limited_copilot': return 'unauthenticated';
+        case 'free_educational_quota': return 'individual_edu';
         case 'copilot_enterprise_seat': return 'enterprise';
         case 'copilot_for_business_seat': return 'business';
+        case 'copilot_for_business_seat_quota': return 'business';
         default: break;
     }
 
@@ -229,7 +235,7 @@ async function graphql<T>(token: string, query: string): Promise<{ data: T; erro
             'Authorization': `bearer ${token}`,
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'User-Agent': USER_AGENT
+            'User-Agent': userAgent
         },
         body: JSON.stringify({ query })
     });
@@ -315,7 +321,7 @@ async function fetchOrgMembership(token: string, org: string): Promise<OrgMember
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': USER_AGENT
+            'User-Agent': userAgent
         }
     });
 
@@ -386,8 +392,8 @@ async function fetchCopilotUser(token: string): Promise<CopilotUserInfo> {
             'Authorization': `token ${token}`,
             'Accept': 'application/json',
             'Editor-Version': `vscode/${vscode.version}`,
-            'Editor-Plugin-Version': USER_AGENT,
-            'User-Agent': USER_AGENT
+            'Editor-Plugin-Version': userAgent,
+            'User-Agent': userAgent
         }
     });
 
@@ -896,6 +902,8 @@ function restartTimer(context: vscode.ExtensionContext): void {
 
 export function activate(context: vscode.ExtensionContext): void {
     extContext = context;
+    const version = (context.extension.packageJSON as { version?: string } | undefined)?.version ?? 'unknown';
+    userAgent = `CopilotLicenseGuard/${version}`;
     output = vscode.window.createOutputChannel('Copilot License Guard');
     context.subscriptions.push(output);
 
@@ -930,6 +938,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     log('Copilot License Guard を起動しました。');
+    log(`バージョン: ${version} / VS Code ${vscode.version}`);
     log('プラン種別の判定には GitHub の公開 GraphQL API (viewer.copilotEndpoints) を使用します。');
     if (config().get<boolean>('useInternalApi', true)) {
         log('注意: 詳細情報(プラン名/SKU/シート提供元)の取得に、GitHub 公式にサポートされていない ' +

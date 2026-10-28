@@ -4,5 +4,9 @@ src/**
 node_modules/**
 tsconfig.json
 .gitignore
+.gitattributes
+install.ps1
+install.sh
 **/*.map
 **/*.ts
+**/*.vsix

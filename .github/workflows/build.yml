@@ -15,11 +15,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - name: Install dependencies
@@ -28,18 +28,38 @@ jobs:
       - name: Compile
         run: npm run compile
 
+      # タグと package.json のバージョンが食い違ったまま Release を作らない
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "v${PKG_VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+
       - name: Package VSIX
-        run: npx --yes @vscode/vsce package --out copilot-license-guard.vsix
+        run: npx --yes @vscode/vsce@4 package --out copilot-license-guard.vsix
+
+      # .vscodeignore の漏れ(スクリプトや CI 定義の混入)を目視確認できるようにする
+      - name: List VSIX contents
+        run: npx --yes @vscode/vsce@4 ls
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: copilot-license-guard-vsix
           path: copilot-license-guard.vsix
 
-      # タグ push 時のみ Release を作成して VSIX を添付する
+      # タグ push 時のみ Release を作成して VSIX を添付する。
+      # 本文はインストール手順(テンプレート) + 自動生成されたリリースノート。
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" copilot-license-guard.vsix --generate-notes
+        run: |
+          sed "s/{{VERSION}}/${GITHUB_REF_NAME}/g" .github/release-notes.md > "${RUNNER_TEMP}/notes.md"
+          gh release create "${GITHUB_REF_NAME}" copilot-license-guard.vsix \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file "${RUNNER_TEMP}/notes.md" \
+            --generate-notes
